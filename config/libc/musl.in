@@ -1,6 +1,6 @@
 # musl options
 
-## depends on ! WINDOWS && ! BARE_METAL
+## depends on ! WINDOWS && ! BARE_METAL && ! FREEBSD
 ##
 ## select LIBC_SUPPORT_THREADS_NATIVE
 ## select CC_CORE_PASSES_NEEDED

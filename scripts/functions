@@ -517,7 +517,7 @@ CT_SetLibPath() {
 # Add them in the prefered order; most preferred comes first
 CT_DoListTarballExt() {
     if [ "${CT_CONFIGURE_has_xz}" = "y" ]; then
-        printf ".tar.xz\n"
+        printf ".tar.xz\n.txz\n"
     fi
     if [    "${CT_CONFIGURE_has_lzma}" = "y"    \
          -o "${CT_CONFIGURE_has_xz}" = "y" ]; then
@@ -646,7 +646,7 @@ CT_GetCustom() {
         # so we can create a properly-named symlink, which
         # we use later on in 'extract'
         case "${custom_location}" in
-            *.tar.xz)       custom_name="${custom_name}.tar.xz";;
+            *.tar.xz|*.txz) custom_name="${custom_name}.tar.xz";;
             *.tar.bz2)      custom_name="${custom_name}.tar.bz2";;
             *.tar.gz|*.tgz) custom_name="${custom_name}.tar.gz";;
             *.tar)          custom_name="${custom_name}.tar";;
@@ -979,7 +979,7 @@ CT_Extract() {
         lzma_prog="xz -fdc"
     fi
     case "${ext}" in
-        .tar.xz)      xz -fdc "${full_file}" | CT_DoExecLog FILE tar "${tar_opts[@]}" -f -;;
+        .tar.xz|.txz) xz -fdc "${full_file}" | CT_DoExecLog FILE tar "${tar_opts[@]}" -f -;;
         .tar.lzma)    ${lzma_prog} "${full_file}" | CT_DoExecLog FILE tar "${tar_opts[@]}" -f -;;
         .tar.bz2)     bzip2 -dc "${full_file}" | CT_DoExecLog FILE tar "${tar_opts[@]}" -f -;;
         .tar.gz|.tgz) gzip -dc "${full_file}" | CT_DoExecLog FILE tar "${tar_opts[@]}" -f -;;

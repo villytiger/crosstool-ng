@@ -1,0 +1,7 @@
+# freebsd options
+
+## depends on FREEBSD
+##
+## select KERNEL_SUPPORTS_SHARED_LIBS
+## select LIBC_SUPPORT_THREADS_NATIVE
+##
