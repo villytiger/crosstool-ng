@@ -3,24 +3,30 @@
 ## depends on WINDOWS
 ##
 ## select LIBC_SUPPORT_THREADS_NATIVE
+## select LIBC_SUPPORT_THREADS_POSIX
 ## select CC_CORE_PASS_2_NEEDED
 ##
 ## help The de-facto standard for Mingw distributions.
 
 config THREADS
-    default "win32"
+    default "win32"  if THREADS_NATIVE
+    default "posix"  if THREADS_POSIX
 
 choice
     bool
     prompt "Windows API version"
 
-# Don't remove next line
-# CT_INSERT_VERSION_BELOW
-
 config WINAPI_V_DEVEL
     bool
     prompt "devel"
     depends on EXPERIMENTAL
+
+# Don't remove next line
+# CT_INSERT_VERSION_BELOW
+
+config WINAPI_V_4_0_4
+    bool
+    prompt "4.0.4"
 
 config WINAPI_V_4_0_2
     bool
@@ -59,9 +65,10 @@ endchoice
 config WINAPI_VERSION
     string
     prompt "Windows API version" if WINAPI_V_select
+    default "devel" if WINAPI_V_DEVEL
 # Don't remove next line
 # CT_INSERT_VERSION_STRING_BELOW
-    default "devel" if WINAPI_V_DEVEL
+    default "4.0.4" if WINAPI_V_4_0_4
     default "4.0.2" if WINAPI_V_4_0_2
     default "4.0.1" if WINAPI_V_4_0_1
     default "4.0.0" if WINAPI_V_4_0_0

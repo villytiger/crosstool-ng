@@ -8,7 +8,8 @@ do_gcc_get() {
     local linaro_series=""
 
     if [ "${CT_CC_GCC_CUSTOM}" = "y" ]; then
-        CT_GetCustom "gcc" "${CT_CC_GCC_VERSION}" "${CT_CC_GCC_CUSTOM_LOCATION}"
+        CT_GetCustom "gcc" "${CT_CC_GCC_CUSTOM_VERSION}" \
+            "${CT_CC_GCC_CUSTOM_LOCATION}"
     else
         # Account for the Linaro versioning
         linaro_version="$( echo "${CT_CC_GCC_VERSION}"  \
@@ -27,9 +28,10 @@ do_gcc_get() {
                        ftp://{gcc.gnu.org,sourceware.org}/pub/gcc/releases/gcc-${CT_CC_GCC_VERSION}
         else
             YYMM=`echo ${CT_CC_GCC_VERSION} |cut -d- -f3 |${sed} -e 's,^..,,'`
-            CT_GetFile "gcc-${CT_CC_GCC_VERSION}"                                                               \
-                       "http://launchpad.net/gcc-linaro/${linaro_series}/${linaro_version}/+download"       \
-                       https://releases.linaro.org/${YYMM}/components/toolchain/gcc-linaro/${linaro_series} \
+            CT_GetFile "gcc-${CT_CC_GCC_VERSION}"                                                             \
+                       "https://releases.linaro.org/components/toolchain/gcc-linaro/${linaro_version}"        \
+                       "https://releases.linaro.org/${YYMM}/components/toolchain/gcc-linaro/${linaro_series}" \
+                       "http://launchpad.net/gcc-linaro/${linaro_series}/${linaro_version}/+download"         \
                        http://cbuild.validation.linaro.org/snapshots
         fi
 
@@ -48,12 +50,6 @@ do_gcc_get() {
 
 # Extract gcc
 do_gcc_extract() {
-    # If using custom directory location, nothing to do
-    if [ "${CT_CC_GCC_CUSTOM}" = "y"                    \
-         -a -d "${CT_SRC_DIR}/gcc-${CT_CC_GCC_VERSION}" ]; then
-        return 0
-    fi
-
     CT_Extract "gcc-${CT_CC_GCC_VERSION}"
     CT_Patch "gcc" "${CT_CC_GCC_VERSION}"
 
@@ -62,6 +58,10 @@ do_gcc_extract() {
          -a ! -f "${CT_SRC_DIR}/gcc-${CT_CC_GCC_VERSION}/ecj.jar"   \
        ]; then
         CT_DoExecLog ALL cp -v "${CT_TARBALLS_DIR}/ecj-latest.jar" "${CT_SRC_DIR}/gcc-${CT_CC_GCC_VERSION}/ecj.jar"
+    fi
+
+    if [ -n "${CT_ARCH_XTENSA_CUSTOM_NAME}" ]; then
+        CT_ConfigureXtensa "gcc" "${CT_CC_GCC_VERSION}"
     fi
 }
 
@@ -82,6 +82,169 @@ cc_gcc_lang_list() {
     lang_list+="${CT_CC_LANG_OTHERS:+,${CT_CC_LANG_OTHERS}}"
 
     printf "%s" "${lang_list}"
+}
+
+#------------------------------------------------------------------------------
+# Return a value of a requested GCC spec
+cc_gcc_get_spec() {
+    local spec=$1
+    local cc_and_cflags=$2
+
+    # GCC does not provide a facility to request a value of a spec string.
+    # The only way to do that I found was to augment the spec file with
+    # some dummy suffix handler that does nothing except printing it.
+    touch temp-input.spec_eval
+    {
+        echo ".spec_eval:"
+        echo "echo %(${spec})"
+    } > "tmp-specs-${spec}"
+    ${cc_and_cflags} -specs="tmp-specs-${spec}" -E temp-input.spec_eval
+}
+
+#------------------------------------------------------------------------------
+# Report the type of a GCC option
+cc_gcc_classify_opt() {
+    # Options present in multiple architectures
+    case "${1}" in
+        -march=*) echo "arch"; return;;
+        -mabi=*) echo "abi"; return;;
+        -mcpu=*|-mmcu=*) echo "cpu"; return;;
+        -mtune=*) echo "tune"; return;;
+        -mfpu=*) echo "fpu"; return;;
+        -mhard-float|-msoft-float|-mno-soft-float|-mno-float|-mfloat-abi=*|\
+            -mfpu|-mno-fpu) echo "float"; return;;
+        -EB|-EL|-mbig-endian|-mlittle-endian|-mbig|-mlittle|-meb|-mel|-mb|-ml) echo "endian"; return;;
+        -mthumb|-marm) echo "mode"; return;;
+    esac
+
+    # Arch-specific options and aliases
+    case "${CT_ARCH}" in
+        m68k)
+            case "${1}" in
+                -m68881) echo "float"; return;;
+                -m5[234]*|-mcfv4e) echo "cpu"; return;;
+                -m68*|-mc68*) echo "arch"; return;;
+            esac
+            ;;
+        mips)
+            case "${1}" in
+                -mips[1234]|-mips32|-mips32r*|-mips64|-mips64r*) echo "cpu"; return;;
+            esac
+            ;;
+        sh)
+            case "${1}" in
+                -m[12345]*) echo "cpu"; return;;
+            esac
+    esac
+
+    # All tried and failed
+    echo "unknown"
+}
+
+#------------------------------------------------------------------------------
+# This function lists the multilibs configured in the compiler (even if multilib
+# is disabled - so that it lists the default GCC/OS directory, which may differ
+# from the default 'lib'). It then performs a few multilib checks/quirks:
+#
+# 1. On SuperH target, configuring with default CPU (e.g. by supplying the target
+# name as 'sh4', which is what CT-NG does) results in the compiler being unable to
+# run if that same switch is passed to the resulting gcc (e.g. 'gcc -m4'). The reason
+# for this behavior is that the script that determines the sysroot suffix is not
+# aware of the default multilib selection, so it generates <sysroot>/m4 as the
+# suffixed sysroot. But the main driver, knowing that -m4 is the default, does not
+# even attempt to fall back to the non-suffixed sysroot (as it does with non-default
+# multilibs) - as a result, gcc fails to find any library if invoked with -m4.
+# The right solution would be to drop the default CPU from the multilib list
+# completely, or make the print-sysroot-suffix.sh script aware of the defaults
+# (which is not easy, as the defaults are not in tmake_file, but rather in tm_file...)
+#
+# 2. On MIPS target, gcc (or rather, ld, which it invokes under the hood) chokes
+# if supplied with two -mabi=* options. I.e., 'gcc -mabi=n32' and 'gcc -mabi=32' both
+# work, but 'gcc -mabi=32 -mabi=n32' produces an internal error in ld. Thus we do
+# not supply target's CFLAGS in multilib builds - and after compiling pass-1 gcc,
+# attempt to determine which CFLAGS need to be filtered out.
+cc_gcc_multilib_housekeeping() {
+    local cc host
+    local flags osdir dir multilibs i f
+    local multilib_defaults
+    local suffix sysroot base lnk
+    local ml_arch ml_abi ml_cpu ml_tune ml_fpu ml_float ml_endian ml_mode ml_unknown ml
+    local new_cflags
+
+    for arg in "$@"; do
+        eval "${arg// /\\ }"
+    done
+
+    if [ \( "${CT_CANADIAN}" = "y" -o "${CT_CROSS_NATIVE}" = "y" \) -a "${host}" = "${CT_HOST}" ]; then
+        CT_DoLog EXTRA "Canadian Cross/Cross-native unable to confirm multilibs configuration "\
+            "directly; will use build-compiler for housekeeping."
+        # Since we cannot run the desired compiler, substitute build-CC with the assumption
+        # that the host-CC is configured in the same way.
+        cc="${CT_BUILDTOOLS_PREFIX_DIR}/bin/${CT_TARGET}-gcc"
+    fi
+
+    # sed: prepend dashes or do nothing if default is empty string
+    multilib_defaults=( $( cc_gcc_get_spec multilib_defaults "${cc}" | \
+        ${sed} 's/\(^\|[[:space:]]\+\)\([^[:space:]]\)/ -\2/g' ) )
+    CT_DoLog EXTRA "gcc default flags: '${multilib_defaults}'"
+
+    multilibs=( $( "${cc}" -print-multi-lib ) )
+    if [ ${#multilibs[@]} -ne 0 ]; then
+        CT_DoLog EXTRA "gcc configured with these multilibs (including the default):"
+        for i in "${multilibs[@]}"; do
+            dir="lib/${i%%;*}"
+            flags="${i#*;}"
+            flags=${flags//@/ -}
+            flags=$( echo ${flags} )
+            osdir="lib/"$( "${cc}" -print-multi-os-directory ${flags} )
+            CT_SanitizeVarDir dir osdir
+            CT_DoLog EXTRA "   '${flags}' --> ${dir} (gcc)   ${osdir} (os)"
+            for f in ${flags}; do
+                eval ml_`cc_gcc_classify_opt ${f}`=seen
+            done
+        done
+    else
+        CT_DoLog WARN "no multilib configuration: GCC unusable?"
+    fi
+
+    # Filtering out some of the options provided in CT-NG config. Then *prepend*
+    # them to CT_TARGET_CFLAGS, like scripts/crosstool-NG.sh does. Zero out
+    # the stashed MULTILIB flags so that we don't process them again in the passes
+    # that follow.
+    CT_DoLog DEBUG "Configured target CFLAGS: '${CT_ARCH_TARGET_CFLAGS_MULTILIB}'"
+    ml_unknown= # Pass through anything we don't know about
+    for f in ${CT_ARCH_TARGET_CFLAGS_MULTILIB}; do
+        eval ml=\$ml_`cc_gcc_classify_opt ${f}`
+        if [ "${ml}" != "seen" ]; then
+            new_cflags="${new_cflags} ${f}"
+        fi
+    done
+    CT_DoLog DEBUG "Filtered target CFLAGS: '${new_cflags}'"
+    CT_EnvModify CT_TARGET_CFLAGS "${new_cflags} ${CT_TARGET_CFLAGS}"
+    CT_EnvModify CT_ARCH_TARGET_CFLAGS_MULTILIB ""
+
+    # Currently, the only LDFLAGS are endianness-related
+    CT_DoLog DEBUG "Configured target LDFLAGS: '${CT_ARCH_TARGET_LDFLAGS_MULTILIB}'"
+    if [ "${ml_endian}" != "seen" ]; then
+        CT_EnvModify CT_TARGET_LDFLAGS "${CT_ARCH_TARGET_LDFLAGS_MULTILIB} ${CT_TARGET_LDFLAGS}"
+        CT_EnvModify CT_ARCH_TARGET_LDFLAGS_MULTILIB ""
+    fi
+    CT_DoLog DEBUG "Filtered target LDFLAGS: '${CT_ARCH_TARGET_LDFLAGS_MULTILIB}'"
+
+    # Sysroot suffix fixup for the multilib default.
+    suffix=$( cc_gcc_get_spec sysroot_suffix_spec "${cc} ${multilib_defaults}" )
+    if [ -n "${suffix}" ]; then
+        base=${suffix%/*}
+        sysroot=$( "${cc}" -print-sysroot )
+        if [ -n "${base}" ]; then
+            CT_DoExecLog ALL mkdir -p "${sysroot}${base}"
+            lnk=$( echo "${base#/}" | ${sed} -e 's,[^/]*,..,g' )
+        else
+            lnk=.
+        fi
+        CT_DoExecLog ALL rm -f "${sysroot}${suffix}"
+        CT_DoExecLog ALL ln -sfv "${lnk}" "${sysroot}${suffix}"
+    fi
 }
 
 #------------------------------------------------------------------------------
@@ -144,9 +307,7 @@ do_gcc_core_pass_2() {
             ;;
         *)
             core_opts+=( "mode=static" )
-            if [ "${CT_CC_GCC_4_3_or_later}" = "y" ]; then
-                core_opts+=( "build_libgcc=yes" )
-            fi
+            core_opts+=( "build_libgcc=yes" )
             ;;
     esac
 
@@ -202,7 +363,6 @@ do_gcc_core_backend() {
     local -a core_targets_all
     local -a core_targets_install
     local -a extra_user_config
-    local -a extra_user_env
     local arg
 
     for arg in "$@"; do
@@ -249,12 +409,6 @@ do_gcc_core_backend() {
             ;;
     esac
 
-    if [ "${CT_CC_GCC_HAS_PKGVERSION_BUGURL}" = "y" ]; then
-        # Bare metal delivers the core compiler as final compiler, so add version info and bugurl
-        extra_config+=("--with-pkgversion=${CT_PKGVERSION}")
-        [ -n "${CT_TOOLCHAIN_BUGURL}" ] && extra_config+=("--with-bugurl=${CT_TOOLCHAIN_BUGURL}")
-    fi
-
     CT_DoLog DEBUG "Copying headers to install area of core C compiler"
     CT_DoExecLog ALL cp -a "${CT_HEADERS_DIR}" "${prefix}/${CT_TARGET}/include"
 
@@ -264,17 +418,46 @@ do_gcc_core_backend() {
             extra_config+=("${tmp}")
         fi
     done
+
+    if [ "${CT_CC_GCC_HAS_PKGVERSION_BUGURL}" = "y" ]; then
+        extra_config+=("--with-pkgversion=${CT_PKGVERSION}")
+        [ -n "${CT_TOOLCHAIN_BUGURL}" ] && extra_config+=("--with-bugurl=${CT_TOOLCHAIN_BUGURL}")
+    fi
     if [ "${CT_CC_CXA_ATEXIT}" = "y" ]; then
         extra_config+=("--enable-__cxa_atexit")
     else
         extra_config+=("--disable-__cxa_atexit")
     fi
 
+    if [ -n "${CT_CC_GCC_ENABLE_CXX_FLAGS}" \
+            -a "${mode}" = "baremetal" ]; then
+        extra_config+=("--enable-cxx-flags=${CT_CC_GCC_ENABLE_CXX_FLAGS}")
+    fi
+
+    extra_config+=(--disable-libgomp)
+    extra_config+=(--disable-libmudflap)
+    extra_config+=(--disable-libmpx)
+
+    if [ "${CT_CC_GCC_LIBSSP}" = "y" ]; then
+        extra_config+=(--enable-libssp)
+    else
+        extra_config+=(--disable-libssp)
+    fi
+    if [ "${CT_CC_GCC_HAS_LIBQUADMATH}" = "y" ]; then
+        if [ "${CT_CC_GCC_LIBQUADMATH}" = "y" ]; then
+            extra_config+=(--enable-libquadmath)
+            extra_config+=(--enable-libquadmath-support)
+        else
+            extra_config+=(--disable-libquadmath)
+            extra_config+=(--disable-libquadmath-support)
+        fi
+    fi
+
     core_LDFLAGS+=("${ldflags}")
 
     # *** WARNING ! ***
     # Keep this full if-else-if-elif-fi-fi block in sync
-    # with the same block in do_gcc, below.
+    # with the same block in do_gcc_backend, below.
     if [ "${build_staticlinked}" = "yes" ]; then
         core_LDFLAGS+=("-static")
         host_libstdcxx_flags+=("-static-libgcc")
@@ -313,28 +496,19 @@ do_gcc_core_backend() {
         extra_config+=("--with-mpc=${complibs}")
     fi
     if [ "${CT_CC_GCC_USE_GRAPHITE}" = "y" ]; then
-        if [ "${CT_PPL}" = "y" ]; then
-            extra_config+=("--with-ppl=${complibs}")
-            # With PPL 0.11+, also pull libpwl if needed
-            if [ "${CT_PPL_NEEDS_LIBPWL}" = "y" ]; then
-                host_libstdcxx_flags+=("-L${complibs}/lib")
-                host_libstdcxx_flags+=("-lpwl")
-            fi
-        fi
         if [ "${CT_ISL}" = "y" ]; then
             extra_config+=("--with-isl=${complibs}")
         fi
-        extra_config+=("--with-cloog=${complibs}")
+        if [ "${CT_CLOOG}" = "y" ]; then
+            extra_config+=("--with-cloog=${complibs}")
+        fi
     elif [ "${CT_CC_GCC_HAS_GRAPHITE}" = "y" ]; then
-        extra_config+=("--with-ppl=no")
         extra_config+=("--with-isl=no")
         extra_config+=("--with-cloog=no")
     fi
     if [ "${CT_CC_GCC_USE_LTO}" = "y" ]; then
-        extra_config+=("--with-libelf=${complibs}")
         extra_config+=("--enable-lto")
     elif [ "${CT_CC_GCC_HAS_LTO}" = "y" ]; then
-        extra_config+=("--with-libelf=no")
         extra_config+=("--disable-lto")
     fi
 
@@ -344,6 +518,9 @@ do_gcc_core_backend() {
 
     if [ "${CT_CC_GCC_ENABLE_TARGET_OPTSPACE}" = "y" ]; then
         extra_config+=("--enable-target-optspace")
+    fi
+    if [ "${CT_CC_GCC_DISABLE_PCH}" = "y" ]; then
+        extra_config+=("--disable-libstdcxx-pch")
     fi
 
     case "${CT_CC_GCC_LDBL_128}" in
@@ -384,43 +561,35 @@ do_gcc_core_backend() {
             ;; # ARCH is mips
     esac
 
-    extra_config+=(--disable-libgomp)
-    extra_config+=(--disable-libmudflap)
-
-    if [ "${CT_CC_GCC_LIBSSP}" = "y" ]; then
-        extra_config+=(--enable-libssp)
-    else
-        extra_config+=(--disable-libssp)
-    fi
-    if [ "${CT_CC_GCC_HAS_LIBQUADMATH}" = "y" ]; then
-        if [ "${CT_CC_GCC_LIBQUADMATH}" = "y" ]; then
-            extra_config+=(--enable-libquadmath)
-            extra_config+=(--enable-libquadmath-support)
-        else
-            extra_config+=(--disable-libquadmath)
-            extra_config+=(--disable-libquadmath-support)
-        fi
-    fi
-
     [ "${CT_TOOLCHAIN_ENABLE_NLS}" != "y" ] && extra_config+=("--disable-nls")
-
-    [ "${CT_CC_GCC_DISABLE_PCH}" = "y" ] && extra_config+=("--disable-libstdcxx-pch")
 
     if [ "${CT_CC_GCC_SYSTEM_ZLIB}" = "y" ]; then
         extra_config+=("--with-system-zlib")
     fi
 
-    # Some versions of gcc have a deffective --enable-multilib.
-    # Since that's the default, only pass --disable-multilib.
+    # Some versions of gcc have a defective --enable-multilib.
+    # Since that's the default, only pass --disable-multilib. For multilib,
+    # also enable multiarch. Without explicit --enable-multiarch, pass-1
+    # compiler is configured as multilib/no-multiarch and pass-2/final
+    # are multilib/multiarch (because gcc autodetects multiarch based on
+    # multiple instances of crt*.o in the install directory - which do
+    # not exist in pass-1).
     if [ "${CT_MULTILIB}" != "y" ]; then
         extra_config+=("--disable-multilib")
-    fi
-
-    if [ "x${CT_CC_GCC_EXTRA_ENV_ARRAY}" != "x" ]; then
-        extra_user_env=( "${CT_CC_GCC_EXTRA_ENV_ARRAY[@]}" )
+    else
+        extra_config+=("--enable-multiarch")
+        if [ -n "${CT_CC_GCC_MULTILIB_LIST}" ]; then
+            extra_config+=("--with-multilib-list=${CT_CC_GCC_MULTILIB_LIST}")
+        fi
     fi
 
     CT_DoLog DEBUG "Extra config passed: '${extra_config[*]}'"
+
+    # Clang's default bracket-depth is 256, and building GCC
+    # requires somewhere between 257 and 512.
+    if ${CT_BUILD}-gcc --version 2>&1 | grep clang; then
+        cflags="$cflags "-fbracket-depth=512
+    fi
 
     # Use --with-local-prefix so older gccs don't look in /usr/local (http://gcc.gnu.org/PR10532)
     CT_DoExecLog CFG                                   \
@@ -428,6 +597,9 @@ do_gcc_core_backend() {
     CFLAGS="${cflags}"                                 \
     CXXFLAGS="${cflags}"                               \
     LDFLAGS="${core_LDFLAGS[*]}"                       \
+    CFLAGS_FOR_TARGET="${CT_TARGET_CFLAGS}"            \
+    CXXFLAGS_FOR_TARGET="${CT_TARGET_CFLAGS}"          \
+    LDFLAGS_FOR_TARGET="${CT_TARGET_LDFLAGS}"          \
     "${CT_SRC_DIR}/gcc-${CT_CC_GCC_VERSION}/configure" \
         --build=${CT_BUILD}                            \
         --host=${host}                                 \
@@ -457,35 +629,27 @@ do_gcc_core_backend() {
         # Next we have to configure gcc, create libgcc.mk then edit it...
         # So much easier if we just edit the source tree, but hey...
         if [ ! -f "${CT_SRC_DIR}/gcc-${CT_CC_GCC_VERSION}/gcc/BASE-VER" ]; then
-            CT_DoExecLog CFG make ${JOBSFLAGS} configure-libiberty
-            CT_DoExecLog ALL make ${JOBSFLAGS} -C libiberty libiberty.a
-            CT_DoExecLog CFG make ${JOBSFLAGS} configure-gcc configure-libcpp
-            CT_DoExecLog ALL make ${JOBSFLAGS} all-libcpp
+            CT_DoExecLog CFG ${make} ${JOBSFLAGS} configure-libiberty
+            CT_DoExecLog ALL ${make} ${JOBSFLAGS} -C libiberty libiberty.a
+            CT_DoExecLog CFG ${make} ${JOBSFLAGS} configure-gcc configure-libcpp
+            CT_DoExecLog ALL ${make} ${JOBSFLAGS} all-libcpp
         else
-            CT_DoExecLog CFG make ${JOBSFLAGS} configure-gcc configure-libcpp configure-build-libiberty
-            CT_DoExecLog ALL make ${JOBSFLAGS} all-libcpp all-build-libiberty
+            CT_DoExecLog CFG ${make} ${JOBSFLAGS} configure-gcc configure-libcpp configure-build-libiberty
+            CT_DoExecLog ALL ${make} ${JOBSFLAGS} all-libcpp all-build-libiberty
         fi
         # HACK: gcc-4.2 uses libdecnumber to build libgcc.mk, so build it here.
         if [ -d "${CT_SRC_DIR}/gcc-${CT_CC_GCC_VERSION}/libdecnumber" ]; then
-            CT_DoExecLog CFG make ${JOBSFLAGS} configure-libdecnumber
-            CT_DoExecLog ALL make ${JOBSFLAGS} -C libdecnumber libdecnumber.a
+            CT_DoExecLog CFG ${make} ${JOBSFLAGS} configure-libdecnumber
+            CT_DoExecLog ALL ${make} ${JOBSFLAGS} -C libdecnumber libdecnumber.a
         fi
         # HACK: gcc-4.8 uses libbacktrace to make libgcc.mvars, so make it here.
         if [ -d "${CT_SRC_DIR}/gcc-${CT_CC_GCC_VERSION}/libbacktrace" ]; then
-            CT_DoExecLog CFG make ${JOBSFLAGS} configure-libbacktrace
-            CT_DoExecLog ALL make ${JOBSFLAGS} -C libbacktrace
+            CT_DoExecLog CFG ${make} ${JOBSFLAGS} configure-libbacktrace
+            CT_DoExecLog ALL ${make} ${JOBSFLAGS} -C libbacktrace
         fi
 
-        # Starting with GCC 4.3, libgcc.mk is no longer built,
-        # and libgcc.mvars is used instead.
-
-        if [ "${CT_CC_GCC_4_3_or_later}" = "y" ]; then
-            libgcc_rule="libgcc.mvars"
-            core_targets=( gcc target-libgcc )
-        else
-            libgcc_rule="libgcc.mk"
-            core_targets=( gcc )
-        fi
+        libgcc_rule="libgcc.mvars"
+        core_targets=( gcc target-libgcc )
 
         # On bare metal and canadian build the host-compiler is used when
         # actually the build-system compiler is required. Choose the correct
@@ -499,9 +663,9 @@ do_gcc_core_backend() {
             repair_cc=""
         fi
 
-        CT_DoExecLog ALL make ${JOBSFLAGS} ${extra_user_env} -C gcc ${libgcc_rule} \
+        CT_DoExecLog ALL ${make} ${JOBSFLAGS} -C gcc ${libgcc_rule} \
                               ${repair_cc}
-        sed -r -i -e 's@-lc@@g' gcc/${libgcc_rule}
+        ${sed} -r -i -e 's@-lc@@g' gcc/${libgcc_rule}
     else # build_libgcc
         core_targets=( gcc )
     fi   # ! build libgcc
@@ -530,26 +694,33 @@ do_gcc_core_backend() {
     esac
 
     CT_DoLog EXTRA "Building ${log_txt}"
-    CT_DoExecLog ALL make ${JOBSFLAGS} ${extra_user_env} ${core_targets_all}
+    CT_DoExecLog ALL ${make} ${JOBSFLAGS} ${core_targets_all}
 
+    # Do not pass ${JOBSFLAGS} here: recent GCC builds have been failing
+    # in parallel 'make install' at random locations: libitm, libcilk,
+    # always for the files that are installed more than once to the same
+    # location (such as libitm.info).
+    # The symptom is that the install command fails with "File exists"
+    # error; running the same command manually succeeds. It looks like
+    # attempts to remove the destination and re-create it, but another
+    # install gets in the way.
     CT_DoLog EXTRA "Installing ${log_txt}"
-    CT_DoExecLog ALL make ${JOBSFLAGS} ${extra_user_env} ${core_targets_install}
+    CT_DoExecLog ALL ${make} ${core_targets_install}
 
     # Remove the libtool "pseudo-libraries": having them in the installed
     # tree makes the libtoolized utilities that are built next assume
     # that, for example, libsupc++ is an "accessory library", and not include
     # -lsupc++ to the link flags. That breaks ltrace, for example.
-    CT_DoLog EXTRA "Housekeeping for final gcc compiler"
+    CT_DoLog EXTRA "Housekeeping for core gcc compiler"
     CT_Pushd "${prefix}"
     find . -type f -name "*.la" -exec rm {} \; |CT_DoLog ALL
     CT_Popd
 
-
     if [ "${build_manuals}" = "yes" ]; then
         CT_DoLog EXTRA "Building the GCC manuals"
-        CT_DoExecLog ALL make pdf html
+        CT_DoExecLog ALL ${make} pdf html
         CT_DoLog EXTRA "Installing the GCC manuals"
-        CT_DoExecLog ALL make install-{pdf,html}-gcc
+        CT_DoExecLog ALL ${make} install-{pdf,html}-gcc
     fi
 
     # Create a symlink ${CT_TARGET}-cc to ${CT_TARGET}-gcc to always be able
@@ -561,25 +732,8 @@ do_gcc_core_backend() {
         CT_DoExecLog ALL ln -sfv "${CT_TARGET}-gcc${ext}" "${prefix}/bin/${CT_TARGET}-cc${ext}"
     fi
 
-    if [ "${CT_MULTILIB}" = "y" ]; then
-        if [ "${CT_CANADIAN}" = "y" -a "${mode}" = "baremetal" \
-             -a "${host}" = "${CT_HOST}" ]; then
-            CT_DoLog WARN "Canadian Cross unable to confirm multilibs configured correctly"
-        else
-            multilibs=( $( "${prefix}/bin/${CT_TARGET}-gcc" -print-multi-lib   \
-                           |tail -n +2 ) )
-            if [ ${#multilibs[@]} -ne 0 ]; then
-                CT_DoLog EXTRA "gcc configured with these multilibs (besides the default):"
-                for i in "${multilibs[@]}"; do
-                    dir="${i%%;*}"
-                    flags="${i#*;}"
-                    CT_DoLog EXTRA "   ${flags//@/ -}  -->  ${dir}/"
-                done
-            else
-                CT_DoLog WARN "gcc configured for multilib, but none available"
-           fi
-        fi
-    fi
+    cc_gcc_multilib_housekeeping cc="${prefix}/bin/${CT_TARGET}-gcc" \
+        host="${host}"
 }
 
 #------------------------------------------------------------------------------
@@ -624,6 +778,35 @@ do_gcc_for_build() {
     CT_EndStep
 }
 
+gcc_movelibs() {
+    local multi_flags multi_dir multi_os_dir multi_root multi_index multi_count
+    local gcc_dir
+
+    for arg in "$@"; do
+        eval "${arg// /\\ }"
+    done
+
+    # Move only files, directories are for other multilibs
+    gcc_dir="${CT_PREFIX_DIR}/${CT_TARGET}/lib/${multi_os_dir}"
+    if [ ! -d "${gcc_dir}" ]; then
+        # GCC didn't install anything outside of sysroot
+        return
+    fi
+    ls "${gcc_dir}" | while read f; do
+        case "${f}" in
+            *.ld)
+                # Linker scripts remain in GCC's directory; elf2flt insists on
+                # finding them there.
+                continue
+                ;;
+        esac
+        if [ -f "${gcc_dir}/${f}" ]; then
+            CT_DoExecLog ALL mkdir -p "${multi_root}/lib/${multi_os_dir}"
+            CT_DoExecLog ALL mv "${gcc_dir}/${f}" "${multi_root}/lib/${multi_os_dir}/${f}"
+        fi
+    done
+}
+
 #------------------------------------------------------------------------------
 # Build final gcc to run on host
 do_gcc_for_host() {
@@ -655,10 +838,18 @@ do_gcc_for_host() {
 
     CT_DoStep INFO "Installing final gcc compiler"
     CT_mkdir_pushd "${CT_BUILD_DIR}/build-cc-gcc-final"
-
     "${final_backend}" "${final_opts[@]}"
-
     CT_Popd
+
+    # GCC installs stuff (including libgcc) into its own /lib dir,
+    # outside of sysroot, breaking linking with -static-libgcc.
+    # Fix up by moving the libraries into the sysroot.
+    if [ "${CT_USE_SYSROOT}" = "y" ]; then
+        CT_mkdir_pushd "${CT_BUILD_DIR}/build-cc-gcc-final-movelibs"
+        CT_IterateMultilibs gcc_movelibs movelibs
+        CT_Popd
+    fi
+
     CT_EndStep
 }
 
@@ -677,9 +868,9 @@ do_gcc_backend() {
     local host
     local prefix
     local complibs
+    local lang_list
     local cflags
     local ldflags
-    local lang_list
     local build_manuals
     local -a host_libstdcxx_flags
     local -a extra_config
@@ -718,13 +909,13 @@ do_gcc_backend() {
     else
         extra_config+=("--disable-__cxa_atexit")
     fi
+
     if [ -n "${CT_CC_GCC_ENABLE_CXX_FLAGS}" ]; then
         extra_config+=("--enable-cxx-flags=${CT_CC_GCC_ENABLE_CXX_FLAGS}")
     fi
-    if [ "${CT_CC_GCC_4_8_or_later}" = "y" ]; then
-        if [ "${CT_THREADS}" = "none" ]; then
-            extra_config+=(--disable-libatomic)
-        fi
+
+    if [ "${CT_THREADS}" = "none" ]; then
+        extra_config+=(--disable-libatomic)
     fi
     if [ "${CT_CC_GCC_LIBMUDFLAP}" = "y" ]; then
         extra_config+=(--enable-libmudflap)
@@ -750,6 +941,7 @@ do_gcc_backend() {
             extra_config+=(--disable-libquadmath-support)
         fi
     fi
+
     if [ "${CT_CC_GCC_HAS_LIBSANITIZER}" = "y" ]; then
         if [ "${CT_CC_GCC_LIBSANITIZER}" = "y" ]; then
             extra_config+=(--enable-libsanitizer)
@@ -758,11 +950,19 @@ do_gcc_backend() {
         fi
     fi
 
+    if [ "${CT_CC_GCC_HAS_LIBMPX}" = "y" ]; then
+        if [ "${CT_CC_GCC_LIBMPX}" = "y" ]; then
+            extra_config+=(--enable-libmpx)
+        else
+            extra_config+=(--disable-libmpx)
+        fi
+    fi
+
     final_LDFLAGS+=("${ldflags}")
 
     # *** WARNING ! ***
     # Keep this full if-else-if-elif-fi-fi block in sync
-    # with the same block in do_gcc_core, above.
+    # with the same block in do_gcc_core_backend, above.
     if [ "${CT_STATIC_TOOLCHAIN}" = "y" ]; then
         final_LDFLAGS+=("-static")
         host_libstdcxx_flags+=("-static-libgcc")
@@ -801,28 +1001,19 @@ do_gcc_backend() {
         extra_config+=("--with-mpc=${complibs}")
     fi
     if [ "${CT_CC_GCC_USE_GRAPHITE}" = "y" ]; then
-        if [ "${CT_PPL}" = "y" ]; then
-            extra_config+=("--with-ppl=${complibs}")
-            # With PPL 0.11+, also pull libpwl if needed
-            if [ "${CT_PPL_NEEDS_LIBPWL}" = "y" ]; then
-                host_libstdcxx_flags+=("-L${complibs}/lib")
-                host_libstdcxx_flags+=("-lpwl")
-            fi
-        fi
         if [ "${CT_ISL}" = "y" ]; then
             extra_config+=("--with-isl=${complibs}")
         fi
-        extra_config+=("--with-cloog=${complibs}")
+        if [ "${CT_CLOOG}" = "y" ]; then
+            extra_config+=("--with-cloog=${complibs}")
+        fi
     elif [ "${CT_CC_GCC_HAS_GRAPHITE}" = "y" ]; then
-        extra_config+=("--with-ppl=no")
         extra_config+=("--with-isl=no")
         extra_config+=("--with-cloog=no")
     fi
     if [ "${CT_CC_GCC_USE_LTO}" = "y" ]; then
-        extra_config+=("--with-libelf=${complibs}")
         extra_config+=("--enable-lto")
     elif [ "${CT_CC_GCC_HAS_LTO}" = "y" ]; then
-        extra_config+=("--with-libelf=no")
         extra_config+=("--disable-lto")
     fi
 
@@ -832,10 +1023,6 @@ do_gcc_backend() {
 
     if [ "${CT_THREADS}" = "none" ]; then
         extra_config+=("--disable-threads")
-        if [ "${CT_CC_GCC_4_2_or_later}" = y ]; then
-            CT_Test "Disabling libgomp for no-thread gcc>=4.2" "${CT_CC_GCC_LIBGOMP}" = "Y"
-            extra_config+=("--disable-libgomp")
-        fi
     else
         if [ "${CT_THREADS}" = "win32" ]; then
             extra_config+=("--enable-threads=win32")
@@ -903,14 +1090,24 @@ do_gcc_backend() {
         extra_config+=("--with-system-zlib")
     fi
 
-
-    # Some versions of gcc have a deffective --enable-multilib.
+    # Some versions of gcc have a defective --enable-multilib.
     # Since that's the default, only pass --disable-multilib.
     if [ "${CT_MULTILIB}" != "y" ]; then
         extra_config+=("--disable-multilib")
+    else
+        extra_config+=("--enable-multiarch")
+        if [ -n "${CT_CC_GCC_MULTILIB_LIST}" ]; then
+            extra_config+=("--with-multilib-list=${CT_CC_GCC_MULTILIB_LIST}")
+        fi
     fi
 
     CT_DoLog DEBUG "Extra config passed: '${extra_config[*]}'"
+
+    # Clang's default bracket-depth is 256, and building GCC
+    # requires somewhere between 257 and 512.
+    if ${CT_BUILD}-gcc --version 2>&1 | grep clang; then
+        cflags="$cflags "-fbracket-depth=512
+    fi
 
     CT_DoExecLog CFG                                \
     CC_FOR_BUILD="${CT_BUILD}-gcc"                  \
@@ -933,17 +1130,18 @@ do_gcc_backend() {
 
     if [ "${CT_CANADIAN}" = "y" ]; then
         CT_DoLog EXTRA "Building libiberty"
-        CT_DoExecLog ALL make ${JOBSFLAGS} all-build-libiberty
+        CT_DoExecLog ALL ${make} ${JOBSFLAGS} all-build-libiberty
     fi
 
     CT_DoLog EXTRA "Building final gcc compiler"
-    CT_DoExecLog ALL make ${JOBSFLAGS} all
+    CT_DoExecLog ALL ${make} ${JOBSFLAGS} all
 
+    # See the note on issues with parallel 'make install' in GCC above.
     CT_DoLog EXTRA "Installing final gcc compiler"
     if [ "${CT_STRIP_TARGET_TOOLCHAIN_EXECUTABLES}" = "y" ]; then
-        CT_DoExecLog ALL make ${JOBSFLAGS} install-strip
+        CT_DoExecLog ALL ${make} install-strip
     else
-        CT_DoExecLog ALL make ${JOBSFLAGS} install
+        CT_DoExecLog ALL ${make} install
     fi
 
     # Remove the libtool "pseudo-libraries": having them in the installed
@@ -957,9 +1155,9 @@ do_gcc_backend() {
 
     if [ "${build_manuals}" = "yes" ]; then
         CT_DoLog EXTRA "Building the GCC manuals"
-        CT_DoExecLog ALL make pdf html
+        CT_DoExecLog ALL ${make} pdf html
         CT_DoLog EXTRA "Installing the GCC manuals"
-        CT_DoExecLog ALL make install-{pdf,html}-gcc
+        CT_DoExecLog ALL ${make} install-{pdf,html}-gcc
     fi
 
     # Create a symlink ${CT_TARGET}-cc to ${CT_TARGET}-gcc to always be able
@@ -968,25 +1166,9 @@ do_gcc_backend() {
     file="$( ls -1 "${CT_PREFIX_DIR}/bin/${CT_TARGET}-gcc."* 2>/dev/null || true )"
     [ -z "${file}" ] || ext=".${file##*.}"
     if [ -f "${CT_PREFIX_DIR}/bin/${CT_TARGET}-gcc${ext}" ]; then
-        CT_DoExecLog ALL ln -sfv "${CT_TARGET}-gcc${ext}" "${CT_PREFIX_DIR}/bin/${CT_TARGET}-cc${ext}"
+        CT_DoExecLog ALL ln -sfv "${CT_TARGET}-gcc${ext}" "${prefix}/bin/${CT_TARGET}-cc${ext}"
     fi
 
-    if [ "${CT_MULTILIB}" = "y" ]; then
-        if [ "${CT_CANADIAN}" = "y" ]; then
-            CT_DoLog WARN "Canadian Cross unable to confirm multilibs configured correctly"
-        else
-            multilibs=( $( "${prefix}/bin/${CT_TARGET}-gcc" -print-multi-lib \
-                           |tail -n +2 ) )
-            if [ ${#multilibs[@]} -ne 0 ]; then
-                CT_DoLog EXTRA "gcc configured with these multilibs (besides the default):"
-                for i in "${multilibs[@]}"; do
-                    dir="${i%%;*}"
-                    flags="${i#*;}"
-                    CT_DoLog EXTRA "   ${flags//@/ -}  -->  ${dir}/"
-                done
-            else
-                CT_DoLog WARN "gcc configured for multilib, but none available"
-            fi
-        fi
-    fi
+    cc_gcc_multilib_housekeeping cc="${prefix}/bin/${CT_TARGET}-gcc" \
+        host="${host}"
 }

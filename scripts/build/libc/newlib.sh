@@ -14,10 +14,10 @@ do_libc_get() {
                      ftp://sourceware.org/pub/newlib}"
 
     if [ "${CT_LIBC_NEWLIB_CUSTOM}" = "y" ]; then
-        CT_GetCustom "newlib" "${CT_LIBC_VERSION}"      \
-                     "${CT_LIBC_NEWLIB_CUSTOM_LOCATION}"
+        CT_GetCustom "newlib" "${CT_LIBC_NEWLIB_CUSTOM_VERSION}" \
+            "${CT_LIBC_NEWLIB_CUSTOM_LOCATION}"
     else # ! custom location
-        if echo ${CT_LIBC_VERSION} |grep -q linaro; then
+        if echo ${CT_LIBC_VERSION} |${grep} -q linaro; then
             YYMM=`echo ${CT_LIBC_VERSION} |cut -d- -f3 |${sed} -e 's,^..,,'`
             CT_GetFile "newlib-${CT_LIBC_VERSION}" ${libc_src} \
                        https://releases.linaro.org/${YYMM}/components/toolchain/newlib-linaro \
@@ -30,24 +30,23 @@ do_libc_get() {
 }
 
 do_libc_extract() {
-    # If using custom directory location, nothing to do
-    if [    "${CT_LIBC_NEWLIB_CUSTOM}" = "y"             \
-         -a -d "${CT_SRC_DIR}/newlib-${CT_LIBC_VERSION}" ]; then
-        return 0
-    fi
-
     CT_Extract "newlib-${CT_LIBC_VERSION}"
     CT_Patch "newlib" "${CT_LIBC_VERSION}"
-}
 
-do_libc_check_config() {
-    :
+    if [ -n "${CT_ARCH_XTENSA_CUSTOM_NAME}" ]; then
+        CT_ConfigureXtensa "newlib" "${CT_LIBC_VERSION}"
+    fi
 }
 
 do_libc_start_files() {
     CT_DoStep INFO "Installing C library headers & start files"
     CT_DoExecLog ALL cp -a "${CT_SRC_DIR}/newlib-${CT_LIBC_VERSION}/newlib/libc/include/." \
     "${CT_HEADERS_DIR}"
+    if [ "${CT_ARCH_xtensa}" = "y" ]; then
+        CT_DoLog EXTRA "Installing Xtensa headers"
+        CT_DoExecLog ALL cp -r "${CT_SRC_DIR}/newlib-${CT_LIBC_VERSION}/newlib/libc/sys/xtensa/include/."   \
+                               "${CT_HEADERS_DIR}"
+    fi
     CT_EndStep
 }
 
@@ -61,6 +60,11 @@ do_libc() {
     cd "${CT_BUILD_DIR}/build-libc"
 
     CT_DoLog EXTRA "Configuring C library"
+
+    # Multilib is the default, so if it is not enabled, disable it.
+    if [ "${CT_MULTILIB}" != "y" ]; then
+        extra_config+=("--disable-multilib")
+    fi
 
     if [ "${CT_LIBC_NEWLIB_IO_C99FMT}" = "y" ]; then
         newlib_opts+=( "--enable-newlib-io-c99-formats" )
@@ -88,6 +92,12 @@ do_libc() {
     else
         newlib_opts+=( "--enable-newlib-supplied-syscalls" )
     fi
+    if [ "${CT_LIBC_NEWLIB_NANO_MALLOC}" = "y" ]; then
+        newlib_opts+=( "--enable-newlib-nano-malloc" )
+    fi
+    if [ "${CT_LIBC_NEWLIB_NANO_FORMATTED_IO}" = "y" ]; then
+        newlib_opts+=( "--enable-newlib-nano-formatted-io" )
+    fi
 
     [ "${CT_LIBC_NEWLIB_ENABLE_TARGET_OPTSPACE}" = "y" ] && newlib_opts+=("--enable-target-optspace")
 
@@ -111,16 +121,16 @@ do_libc() {
         "${CT_LIBC_NEWLIB_EXTRA_CONFIG_ARRAY[@]}"
 
     CT_DoLog EXTRA "Building C library"
-    CT_DoExecLog ALL make ${JOBSFLAGS}
+    CT_DoExecLog ALL ${make} ${JOBSFLAGS}
 
     CT_DoLog EXTRA "Installing C library"
-    CT_DoExecLog ALL make install install_root="${CT_SYSROOT_DIR}"
+    CT_DoExecLog ALL ${make} install install_root="${CT_SYSROOT_DIR}"
 
     if [ "${CT_BUILD_MANUALS}" = "y" ]; then
         local -a doc_dir="${CT_BUILD_DIR}/build-libc/${CT_TARGET}"
 
         CT_DoLog EXTRA "Building and installing the C library manual"
-        CT_DoExecLog ALL make pdf html
+        CT_DoExecLog ALL ${make} pdf html
 
         # NEWLIB install-{pdf.html} fail for some versions
         CT_DoExecLog ALL mkdir -p "${CT_PREFIX_DIR}/share/doc/newlib"

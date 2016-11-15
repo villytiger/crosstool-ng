@@ -1,6 +1,6 @@
 # uClibc second-part option
 
-if THREADS_LT
+if THREADS_LT && !LIBC_UCLIBC_NG_1_0_15_or_later
 
 choice
     bool
@@ -30,10 +30,12 @@ endchoice
 
 endif # THREADS_LT
 
+# uClibc-ng 1.0.15 did away with 2 implementations of linuxthreads
 config LIBC_UCLIBC_LNXTHRD
     string
     default ""      if THREADS_NONE
     default ""      if THREADS_NATIVE
+    default ""      if LIBC_UCLIBC_NG_1_0_15_or_later
     default "old"   if LIBC_UCLIBC_LNXTHRD_OLD
     default "new"   if LIBC_UCLIBC_LNXTHRD_NEW
 
@@ -50,6 +52,7 @@ config LIBC_UCLIBC_LOCALES_PREGEN_DATA
     bool
     prompt "Use pregen locales"
     depends on LIBC_UCLIBC_LOCALES
+    depends on ! LIBC_UCLIBC_NG
     default y
     help
       If you see issues with using pre-generated locales data,
@@ -57,6 +60,12 @@ config LIBC_UCLIBC_LOCALES_PREGEN_DATA
 
       If so, please report the issue, so we can default this
       to off if too many people complain.
+
+config LIBC_UCLIBC_IPV6
+    bool
+    prompt "Add support for IPv6"
+    help
+      Say y if you want uClibc to support IPv6.
 
 config LIBC_UCLIBC_WCHAR
     bool

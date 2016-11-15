@@ -75,6 +75,7 @@ export CPPFLAGS        := @CPPFLAGS@
 export CFLAGS          := @CFLAGS@
 export LDFLAGS         := @LDFLAGS@
 export LIBS            := @LIBS@
+export INTL_LIBS       := @INTL_LIBS@
 export curses_hdr      := @ac_ct_curses_hdr@
 export gettext         := @gettext@
 
@@ -348,6 +349,9 @@ install-lib-samples: $(DESTDIR)$(libdir) install-lib-main
 	         $(install) -m 644 "$${libc_cfg}"                               \
 	                           "$(DESTDIR)$(libdir)/$${samp_dir}";          \
 	     done;                                                              \
+	     [ -e "$${samp_dir}/broken" ] &&                                    \
+                 $(install) -m 644 "$${samp_dir}/broken"                        \
+                    "$(DESTDIR)$(libdir)/$${samp_dir}/" || :;                   \
 	 done
 	@$(install) -m 644 samples/samples.mk "$(DESTDIR)$(libdir)/samples/samples.mk"
 
@@ -381,7 +385,7 @@ install-post:
 #--------------------------------------
 # Uninstall rules
 
-real-uninstall: $(patsubst %,uninstall-%,$(TARGETS))
+real-uninstall: $(patsubst %,uninstall-%,$(filter-out lib-kconfig,$(TARGETS)))
 
 uninstall-bin:
 	@echo "  RM      '$(DESTDIR)$(bindir)/$(PROG_NAME)'"
