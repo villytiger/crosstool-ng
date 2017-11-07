@@ -3,6 +3,7 @@
 
 CT_DEBIAN_LIBC_BASENAME=
 CT_DEBIAN_LIBC_DEV_BASENAME=
+CT_DEBIAN_LIBC_MIRROR=
 
 do_extract_deb_file() {
     local basename="$1"
@@ -54,18 +55,31 @@ do_libc_get() {
     esac
 
     case "${CT_DEBIAN_GLIBC_VERSION}:${arch}" in
-        2.3.6:i386)
+        debian-2.3.6:i386)
             CT_DEBIAN_LIBC_BASENAME=libc6_2.3.6.ds1-13etch10+b1_i386
             CT_DEBIAN_LIBC_DEV_BASENAME=libc6-dev_2.3.6.ds1-13etch10+b1_i386
             ;;
-        2.3.6:amd64)
+        debian-2.3.6:amd64)
             CT_DEBIAN_LIBC_BASENAME=libc6_2.3.6.ds1-13etch10_amd64
             CT_DEBIAN_LIBC_DEV_BASENAME=libc6-dev_2.3.6.ds1-13etch10_amd64
             ;;
+        debian-2.8:i386)
+            CT_DEBIAN_LIBC_BASENAME=libc6_2.8~20080505-0ubuntu9_i386
+            CT_DEBIAN_LIBC_DEV_BASENAME=libc6-dev_2.8~20080505-0ubuntu9_i386.deb
+            ;;
+        ubuntu-2.8:amd64)
+            CT_DEBIAN_LIBC_BASENAME=libc6_2.8~20080505-0ubuntu9_amd64
+            CT_DEBIAN_LIBC_DEV_BASENAME=libc6-dev_2.8~20080505-0ubuntu9_amd64
+            ;;
     esac
 
-    CT_GetFile "${CT_DEBIAN_LIBC_BASENAME}.deb" "http://archive.kernel.org/debian-archive/debian/pool/main/g/glibc"
-    CT_GetFile "${CT_DEBIAN_LIBC_DEV_BASENAME}.deb" "http://archive.kernel.org/debian-archive/debian/pool/main/g/glibc"
+    case "${CT_DEBIAN_GLIBC_VERSION}" in
+        debian-*) CT_DEBIAN_LIBC_MIRROR="http://archive.kernel.org/debian-archive/debian/pool/main/g/glibc";;
+        ubuntu-*) CT_DEBIAN_LIBC_MIRROR="http://archive.kernel.org/ubuntu-archive/ubuntu/pool/main/g/glibc/";;
+    esac
+
+    CT_GetFile "${CT_DEBIAN_LIBC_BASENAME}.deb" "${CT_DEBIAN_LIBC_MIRROR}"
+    CT_GetFile "${CT_DEBIAN_LIBC_DEV_BASENAME}.deb" "${CT_DEBIAN_LIBC_MIRROR}"
 
     CT_EndStep
 }
