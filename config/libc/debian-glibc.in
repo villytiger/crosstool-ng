@@ -14,7 +14,11 @@ choice
 
 config DEBIAN_GLIBC_V_2_3_6
     bool
-    prompt "2.3.6"
+    prompt "debian-2.3.6"
+
+config UBUNTU_GLIBC_V_2_8
+    bool
+    prompt "ubuntu-2.8"
 
 endchoice
 
@@ -22,4 +26,5 @@ config DEBIAN_GLIBC_VERSION
     string
 # Don't remove next line
 # CT_INSERT_VERSION_STRING_BELOW
-    default "2.3.6" if DEBIAN_GLIBC_V_2_3_6
+    default "debian-2.3.6" if DEBIAN_GLIBC_V_2_3_6
+    default "ubuntu-2.8" if UBUNTU_GLIBC_V_2_8
