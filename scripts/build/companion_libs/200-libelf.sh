@@ -9,22 +9,17 @@ do_libelf_for_target() { :; }
 if [ "${CT_LIBELF}" = "y" -o "${CT_LIBELF_TARGET}" = "y" ]; then
 
 do_libelf_get() {
-    # The server hosting libelf will return an "HTTP 300 : Multiple Choices"
-    # error code if we try to download a file that does not exists there.
-    # So we have to request the file with an explicit extension.
-    CT_GetFile "libelf-${CT_LIBELF_VERSION}" .tar.gz http://www.mr511.de/software/
+    CT_Fetch LIBELF
 }
 
 do_libelf_extract() {
-    CT_Extract "libelf-${CT_LIBELF_VERSION}"
-    CT_Patch "libelf" "${CT_LIBELF_VERSION}"
+    CT_ExtractPatch LIBELF
 }
 
 if [ "${CT_LIBELF}" = "y" ]; then
 
 # Build libelf for running on build
 # - always build statically
-# - we do not have build-specific CFLAGS
 # - install in build-tools prefix
 do_libelf_for_build() {
     local -a libelf_opts
@@ -69,14 +64,26 @@ if [ "${CT_LIBELF_TARGET}" = "y" ]; then
 
 do_libelf_for_target() {
     local -a libelf_opts
+    local prefix
 
     CT_DoStep INFO "Installing libelf for the target"
     CT_mkdir_pushd "${CT_BUILD_DIR}/build-libelf-target-${CT_TARGET}"
 
+    case "${CT_TARGET}" in
+        *-*-mingw*)
+            prefix="/mingw"
+            ;;
+        *)
+            prefix="/usr"
+            ;;
+    esac
+
     libelf_opts+=( "destdir=${CT_SYSROOT_DIR}" )
     libelf_opts+=( "host=${CT_TARGET}" )
-    libelf_opts+=( "prefix=/usr" )
-    libelf_opts+=( "shared=y" )
+
+    libelf_opts+=( "cflags=${CT_TARGET_CFLAGS}" )
+    libelf_opts+=( "prefix=${prefix}" )
+    libelf_opts+=( "shared=${CT_SHARED_LIBS}" )
     do_libelf_backend "${libelf_opts[@]}"
 
     CT_Popd
@@ -120,7 +127,8 @@ do_libelf_backend() {
     RANLIB="${host}-ranlib"                                 \
     CFLAGS="${cflags} -fPIC"                                \
     LDFLAGS="${ldflags}"                                    \
-    "${CT_SRC_DIR}/libelf-${CT_LIBELF_VERSION}/configure"   \
+    ${CONFIG_SHELL}                                         \
+    "${CT_SRC_DIR}/libelf/configure"                        \
         --build=${CT_BUILD}                                 \
         --host=${host}                                      \
         --target=${CT_TARGET}                               \
@@ -132,7 +140,7 @@ do_libelf_backend() {
         "${extra_config[@]}"
 
     CT_DoLog EXTRA "Building libelf"
-    CT_DoExecLog ALL ${make}
+    CT_DoExecLog ALL make
 
     CT_DoLog EXTRA "Installing libelf"
 
@@ -142,7 +150,7 @@ do_libelf_backend() {
         destdir=
     fi
 
-    CT_DoExecLog ALL ${make} instroot="${destdir}" install
+    CT_DoExecLog ALL make instroot="${destdir}" install
 }
 
 fi # CT_LIBELF || CT_LIBELF_TARGET

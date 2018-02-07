@@ -86,7 +86,7 @@ CT_DoArchGlibcAdjustTuple() {
         # x86 quirk: architecture name is i386, but glibc expects i[4567]86 - to
         # indicate the desired optimization. If it was a multilib variant of x86_64,
         # then it targets at least NetBurst a.k.a. i786, but we'll follow the model
-        # above # and set the optimization to i686. Otherwise, replace with the most
+        # above and set the optimization to i686. Otherwise, replace with the most
         # conservative choice, i486.
         i386-*)
             if [ "${CT_TARGET_ARCH}" = "x86_64" ]; then
@@ -166,7 +166,7 @@ CT_DoArchUClibcHeaderDir() {
     # If it is non-default multilib, add a suffix with architecture (reported by gcc)
     # to the headers installation path.
     if [ -n "${cflags}" ]; then
-        eval "${dir_var}="$( ${CT_TARGET}-gcc -print-multiarch ${cflags} )
+        eval "${dir_var}="$( ${CT_TARGET}-${CT_CC} -print-multiarch ${cflags} )
     fi
 }
 
@@ -177,6 +177,6 @@ CT_DoArchMUSLHeaderDir() {
     # If it is non-default multilib, add a suffix with architecture (reported by gcc)
     # to the headers installation path.
     if [ -n "${cflags}" ]; then
-        eval "${dir_var}="$( ${CT_TARGET}-gcc -print-multiarch ${cflags} )
+        eval "${dir_var}="$( ${CT_TARGET}-${CT_CC} -print-multiarch ${cflags} )
     fi
 }
