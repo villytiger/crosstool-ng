@@ -1,0 +1,4 @@
+mirrors='http://old-releases.ubuntu.com/ubuntu/pool/main/l/linux'
+archive_dirname='.'
+archive_filename='linux-libc-dev_@{version}'
+archive_formats='.deb'

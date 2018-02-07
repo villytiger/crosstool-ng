@@ -3,7 +3,7 @@
 # Licensed under the GPL v2. See COPYING in the root of this package
 
 CT_DoKernelTupleValues() {
-    CT_TARGET_KERNEL="freebsd${CT_FREEBSD_VERSION}"
+    CT_TARGET_KERNEL="freebsd${CT_FREEBSD_VERSION%-*}"
     CT_TARGET_SYS=
 }
 

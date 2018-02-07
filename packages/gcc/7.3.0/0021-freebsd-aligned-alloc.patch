@@ -1,0 +1,10 @@
+--- a/libstdc++-v3/crossconfig.m4	2018-02-12 19:54:24.323673272 +0300
++++ b/libstdc++-v3/crossconfig.m4	2018-02-12 19:53:33.826632457 +0300
+@@ -133,6 +133,7 @@
+       AC_DEFINE(HAVE_ISNANL)
+     fi
+     AC_CHECK_FUNCS(__cxa_thread_atexit)
++    AC_CHECK_FUNCS(aligned_alloc posix_memalign memalign _aligned_malloc)
+     ;;
+ 
+   *-fuchsia*)

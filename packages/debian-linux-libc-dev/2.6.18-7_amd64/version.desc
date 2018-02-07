@@ -1,0 +1,3 @@
+mirrors='http://archive.debian.org/debian/pool/main/l/linux-kernel-headers'
+archive_filename='linux-kernel-headers_@{version}'
+depends='MAINTAINER || DEBIAN_LIBC_V_2_3_6_DS1_13ETCH10_AMD64'

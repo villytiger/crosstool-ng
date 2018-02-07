@@ -118,7 +118,7 @@ check_pkg_urls()
 
         CT_DoStep EXTRA "Looking for ${archive_filename}${e}"
         for m in ${mirrors}; do
-            url="${m}/${archive_filename}${e}"
+            url="${m}/${archive_remotename}${e}"
             case "${url}" in
             # WGET always returns success for FTP URLs in spider mode :(
             ftp://*) CT_DoLog DEBUG "Skipping '${url}': FTP not supported"; continue;;
@@ -137,9 +137,9 @@ check_pkg_urls()
         done
         for mh in "${!mirror_status[@]}"; do
             if [ -n "${mirror_status[${mh}]}" ]; then
-                CT_DoLog EXTRA "OK   ${mh} [${archive_filename}${e}]"
+                CT_DoLog EXTRA "OK   ${mh} [${archive_remotename}${e}]"
             else
-                CT_DoLog ERROR "FAIL ${mh} [${archive_filename}${e}]"
+                CT_DoLog ERROR "FAIL ${mh} [${archive_remotename}${e}]"
             fi
         done
         CT_EndStep
@@ -243,6 +243,9 @@ run_pkgversion()
 
     # Create a temporary configuration head file
     cat >temp.in <<EOF
+config MAINTAINER
+    def_bool y
+
 config OBSOLETE
     def_bool y
 

@@ -1,0 +1,11 @@
+# CentOS config options
+
+## no-package
+## depends on ARCH_X86
+## select KERNEL_SUPPORTS_SHARED_LIBS
+## select CENTOS
+##
+## help Build a toolchain targeting CentOS systems
+
+
+source "config/versions/centos-kernel-headers.in"

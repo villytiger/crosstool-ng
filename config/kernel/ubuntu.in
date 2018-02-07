@@ -1,0 +1,11 @@
+# Ubuntu config options
+
+## no-package
+## depends on ARCH_X86
+## select KERNEL_SUPPORTS_SHARED_LIBS
+## select UBUNTU
+##
+## help Build a toolchain targeting Ubuntu systems
+
+
+source "config/versions/ubuntu-linux-libc-dev.in"

@@ -204,6 +204,9 @@ config @@fork|@@_V_@@ver_sel|@@
 #!if [ "@@experimental@@" = "yes" ]
     depends on EXPERIMENTAL
 #!end-if
+#!if [ -n "@@depends@@" ]
+    depends on @@depends@@
+#!end-if
 #!foreach milestone
 #!if [ "@@version_cmp_milestone@@" -gt 0 ]
     depends on !@@master|@@_REQUIRE_@@ms|@@_or_older
@@ -270,6 +273,18 @@ config @@fork|@@_ARCHIVE_FILENAME
     default "@@archive_filename@@" if @@fork|@@_V_@@ver_sel|@@
 #!end-foreach
     default "@@archive_filename@@"
+
+config @@fork|@@_ARCHIVE_REMOTENAME
+    string
+#!foreach version if-differs archive_remotename
+    default "@@archive_remotename@@" if @@fork|@@_V_@@ver_sel|@@
+#!end-foreach
+#!if [ -n "@@archive_remotename@@" ]
+    default "@@archive_remotename@@"
+#!end-if
+#!if [ -z "@@archive_remotename@@" ]
+    default @@fork|@@_ARCHIVE_FILENAME
+#!end-if
 
 config @@fork|@@_ARCHIVE_DIRNAME
     string

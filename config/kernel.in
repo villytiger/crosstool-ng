@@ -15,6 +15,15 @@ config WINDOWS
 config FREEBSD
     bool
 
+config DEBIAN
+    bool
+
+config UBUNTU
+    bool
+
+config CENTOS
+    bool
+
 # Each target OS (aka kernel) that support shared libraries can select
 # this, so the user can decide whether or not to build a shared library
 # enabled toolchain

@@ -1,0 +1,5 @@
+mirrors='$(CT_Mirrors centos)'
+archive_dirname='.'
+archive_filename='glibc-headers-@{version}'
+archive_formats='.rpm'
+versionlocked='centos-glibc'

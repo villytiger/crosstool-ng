@@ -1,0 +1,7 @@
+# debian-libc options
+
+## depends on DEBIAN
+## select LIBC_SUPPORT_THREADS_NATIVE
+##
+
+source "config/versions/debian-libc-dev.in"

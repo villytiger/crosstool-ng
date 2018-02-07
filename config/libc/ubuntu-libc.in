@@ -1,0 +1,7 @@
+# ubuntu-libc options
+
+## depends on UBUNTU
+## select LIBC_SUPPORT_THREADS_NATIVE
+##
+
+source "config/versions/ubuntu-libc-dev.in"

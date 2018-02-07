@@ -540,10 +540,12 @@ enter_fork()
     info[pkg_label]=${fork}
     info[mirrors]=
     info[archive_filename]='@{pkg_name}-@{version}'
+    info[archive_remotename]=
     info[archive_dirname]='@{pkg_name}-@{version}'
     info[versionlocked]=
     info[origin]=
     info[signature_format]=
+    info[depends]=
 
     eval `read_package_desc ${fork}`
 

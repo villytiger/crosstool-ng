@@ -1,25 +1,8 @@
-# centos-glibc options
+# centos-libc options
 
-## depends on ! WINDOWS && ! BARE_METAL && ARCH_USE_MMU && ! FREEBSD
-##
-## select KERNEL_SUPPORTS_SHARED_LIBS
+## depends on CENTOS
 ## select LIBC_SUPPORT_THREADS_NATIVE
 ##
 
-choice
-    bool
-    prompt "CentOS glibc version"
-# Don't remove next line
-# CT_INSERT_VERSION_BELOW
-
-config CENTOS_GLIBC_V_2_12
-    bool
-    prompt "2.12"
-
-endchoice
-
-config CENTOS_GLIBC_VERSION
-    string
-# Don't remove next line
-# CT_INSERT_VERSION_STRING_BELOW
-    default "2.12" if CENTOS_GLIBC_V_2_12
+source "config/versions/centos-glibc-devel.in"
+source "config/versions/centos-glibc-headers.in"

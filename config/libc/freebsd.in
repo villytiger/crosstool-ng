@@ -1,5 +1,6 @@
 # freebsd options
 
+## no-package
 ## depends on FREEBSD
 ##
 ## select KERNEL_SUPPORTS_SHARED_LIBS

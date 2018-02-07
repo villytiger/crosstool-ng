@@ -1,0 +1,1 @@
+depends='MAINTAINER || (ARCH_X86 && ARCH_64)'

@@ -1,0 +1,4 @@
+mirrors='$(CT_Mirrors freebsd)'
+archive_dirname='.'
+archive_remotename='base'
+archive_formats='.txz'

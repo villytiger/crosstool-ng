@@ -1,0 +1,5 @@
+mirrors='http://archive.debian.org/debian/pool/main/g/glibc'
+archive_dirname='.'
+archive_filename='libc6-dev_@{version}'
+archive_formats='.deb'
+versionlocked='debian-libc'

@@ -1,0 +1,2 @@
+archive_filename='freebsd-11.0-i386'
+depends='MAINTAINER || (ARCH_X86 && ARCH_32)'

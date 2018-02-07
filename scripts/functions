@@ -665,6 +665,8 @@ CT_DoListTarballExt()
     printf ".tar.gz\n.tgz\n"
     printf ".tar\n"
     printf ".zip\n"
+    printf ".deb\n"
+    printf ".rpm\n"
 }
 
 # Get the file name extension of a component
@@ -707,7 +709,7 @@ CT_GetFileBasename()
 CT_DoGetFile()
 {
     local url="${1}"
-    local dest="${CT_TARBALLS_DIR}/${url##*/}"
+    local dest="${2}"
     local tmp="${dest}.tmp-dl"
     local ok
     local T
@@ -807,7 +809,7 @@ CT_ZCat()
     local file="$1"
 
     case "${file}" in
-    *.tar.xz)
+    *.tar.xz|*.txz)
         xz -fdc "${file}"
         ;;
     *.tar.lzma)
@@ -824,6 +826,9 @@ CT_ZCat()
         ;;
     *.tar)
         cat "${file}"
+        ;;
+    *.deb)
+        ar p "$file" data.tar.gz | gzip -dc
         ;;
     *)
         CT_Abort "Unsupported archive file name '${file}'"
@@ -871,7 +876,7 @@ CT_DoVerifySignature()
     esac
 
     # No recursion, as we don't pass signature_format argument
-    if ! CT_DoGetFile "${urldir}/${sigfile}${ext}"; then
+    if ! CT_DoGetFile "${urldir}/${sigfile}${ext}" "${CT_TARBALLS_DIR}/${sigfile}${ext}"; then
         CT_DoLog WARN "Failed to download the signature '${sigfile}${ext}'"
         return 1
     fi
@@ -896,6 +901,7 @@ CT_GetFile()
         package             # Name of the package
         pkg_dir             # Directory with package's auxiliary files
         basename            # Base name of file/archive
+        remotename          # Base name of remote file/archive
         extensions          # Extension(s) for the file/archive
         digest              # If 'y', verify the digest
         signature_format    # Format of the signature
@@ -907,6 +913,10 @@ CT_GetFile()
     for arg in "${argnames[@]/%/=}" "$@"; do
         eval "local ${arg//[[:space:]]/\\ }"
     done
+
+    if [ -z "${remotename}" ]; then
+        remotename="${basename}"
+    fi
 
     # Does any of the requested files exist localy?
     for ext in ${extensions}; do
@@ -932,7 +942,7 @@ CT_GetFile()
     fi
 
     # Try to retrieve the file
-    CT_DoLog EXTRA "Retrieving '${basename}'"
+    CT_DoLog EXTRA "Retrieving '${remotename}'"
 
     # Add URLs on the LAN mirror
     if [ "${CT_USE_MIRROR}" = "y" ]; then
@@ -952,7 +962,7 @@ CT_GetFile()
         # Try all urls in turn
         for url in "${URLS[@]}"; do
             [ -n "${url}" ] || continue
-            if CT_DoGetFile "${url}/${basename}${ext}"; then
+            if CT_DoGetFile "${url}/${remotename}${ext}" "${CT_TARBALLS_DIR}/${basename}${ext}"; then
                 if [ -n "${digest}" -a -n "${pkg_dir}" ] && ! CT_DoVerifyDigest \
                             "${CT_TARBALLS_DIR}/${basename}${ext}" \
                             "${CT_LIB_DIR}/packages/${pkg_dir}"; then
@@ -962,7 +972,7 @@ CT_GetFile()
                 fi
                 if [ -n "${signature_format}" ] && ! CT_DoVerifySignature \
                             "${CT_TARBALLS_DIR}/${basename}${ext}" \
-                            "${url}/${basename}${ext}" \
+                            "${url}/${remotename}${ext}" \
                             "${signature_format}"; then
                     CT_DoLog ERROR "Signature verification failed; removing the download"
                     CT_DoExecLog ALL rm "${CT_TARBALLS_DIR}/${basename}${ext}"
@@ -1707,6 +1717,15 @@ CT_Mirrors()
             ;;
         esac
         ;;
+    freebsd)
+        local arch="${CT_FREEBSD_VERSION##*-}"
+        local version="${CT_FREEBSD_VERSION%-*}"
+        echo "http://ftp.freebsd.org/pub/FreeBSD/releases/${arch}/${version}-RELEASE"
+        ;;
+    centos)
+        echo "http://vault.centos.org/6.0/os/i386/Packages"
+        echo "http://vault.centos.org/6.0/os/x86_64/Packages"
+        ;;
     *)
         CT_Abort "Unknown mirror '${org}'"
         ;;
@@ -1886,9 +1905,9 @@ CT_PackageRun()
 
     # Variables that are per-fork
     for v in basename pkg_name version pkg_dir \
-            src_release mirrors archive_filename archive_dirname archive_formats signature_format \
-            src_devel devel_vcs devel_url devel_branch devel_revision devel_subdir devel_bootstrap \
-            src_custom custom_location; do
+            src_release mirrors archive_filename archive_remotename archive_dirname archive_formats \
+            signature_format src_devel devel_vcs devel_url devel_branch devel_revision devel_subdir \
+            devel_bootstrap src_custom custom_location; do
         eval "local ${v}=\${CT_${use}_${v^^}}"
     done
 
@@ -1896,7 +1915,7 @@ CT_PackageRun()
         CT_Abort "Internal ct-ng error: '${sym}' not defined, please report a bug"
     fi
 
-    for v in archive_filename archive_dirname; do
+    for v in archive_filename archive_remotename archive_dirname; do
         # kconfig and shell have different quoting rules, so it seems impossible to make
         # kconfig quote '$' properly for eval (i.e. not have it expanded when loading the
         # .config). Therefore, use '@' instead of '$' in kconfig files and substitute it
@@ -1930,8 +1949,8 @@ CT_DoFetch()
         fi
         pkg_dir="${pkg_name}/${version}"
         if ! CT_GetFile package="${pkg_name}" pkg_dir="${pkg_dir}" \
-                basename="${archive_filename}" extensions="${archive_formats}" \
-                digest="${CT_VERIFY_DOWNLOAD_DIGEST}" \
+                basename="${archive_filename}" remotename="${archive_remotename}" \
+                extensions="${archive_formats}" digest="${CT_VERIFY_DOWNLOAD_DIGEST}" \
                 signature_format="${CT_VERIFY_DOWNLOAD_SIGNATURE:+${signature_format}}" \
                 mirrors="${mirrors}"; then
             CT_Abort "${pkg_name}: download failed"
@@ -2015,13 +2034,16 @@ CT_Extract()
 
     CT_DoExecLog ALL mkdir -p "${dir}"
     case "${file}" in
-        *.tar.*|*.tar)
+        *.tar.*|*.tar|*.txz|*.deb)
             CT_ZCat "${file}" | CT_DoExecLog FILE tar x -v -f - -C "${dir}" ${components}
             ;;
         *.zip)
             CT_Pushd "${dir}"
             CT_DoExecLog FILE unzip "${file}" ${components}
             CT_Popd
+            ;;
+        *.rpm)
+            rpm2cpio "${file}" | xz -d | CT_DoExecLog FILE cpio -idv -D "${dir}" ${components}
             ;;
         *)
             CT_Abort "Don't know how to handle ${file}: unknown extension"

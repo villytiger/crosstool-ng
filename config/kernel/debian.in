@@ -1,0 +1,11 @@
+# Debian config options
+
+## no-package
+## depends on ARCH_X86
+## select KERNEL_SUPPORTS_SHARED_LIBS
+## select DEBIAN
+##
+## help Build a toolchain targeting Debian systems
+
+
+source "config/versions/debian-linux-libc-dev.in"

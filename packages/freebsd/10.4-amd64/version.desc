@@ -1,0 +1,2 @@
+archive_filename='freebsd-10.4-amd64'
+depends='MAINTAINER || (ARCH_X86 && ARCH_64)'

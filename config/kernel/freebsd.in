@@ -1,35 +1,7 @@
-# freebsd config options
+# Freebsd config options
 
-## depends on ARCH_x86
-##
+## depends on ARCH_X86
+## select KERNEL_SUPPORTS_SHARED_LIBS
 ## select FREEBSD
 ##
 ## help Build a toolchain targeting systems running FreeBSD as host
-
-choice
-    bool
-    prompt "FreeBSD version"
-# Don't remove next line
-# CT_INSERT_VERSION_BELOW
-
-config FREEBSD_V_10_2
-    bool
-    prompt "10.2"
-
-config FREEBSD_V_10_1
-    bool
-    prompt "10.1"
-
-config FREEBSD_V_9_3
-    bool
-    prompt "9.3"
-
-endchoice
-
-config FREEBSD_VERSION
-    string
-# Don't remove next line
-# CT_INSERT_VERSION_STRING_BELOW
-    default "10.2" if FREEBSD_V_10_2
-    default "10.1" if FREEBSD_V_10_1
-    default "9.3" if FREEBSD_V_9_3

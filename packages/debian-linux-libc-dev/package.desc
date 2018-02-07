@@ -1,0 +1,4 @@
+mirrors='http://archive.debian.org/debian/pool/main/l/linux-2.6'
+archive_dirname='.'
+archive_filename='linux-libc-dev_@{version}'
+archive_formats='.deb'

@@ -1,0 +1,4 @@
+mirrors='http://old-releases.ubuntu.com/ubuntu/pool/main/g/glibc'
+archive_dirname='.'
+archive_filename='libc6_@{version}'
+archive_formats='.deb'
