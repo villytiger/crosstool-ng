@@ -171,13 +171,13 @@ cc_gcc_multilib_housekeeping() {
         fi
     done
     CT_DoLog DEBUG "Filtered target CFLAGS: '${new_cflags}'"
-    CT_EnvModify CT_TARGET_CFLAGS "${new_cflags} ${CT_TARGET_CFLAGS}"
+    CT_EnvModify CT_ALL_TARGET_CFLAGS "${new_cflags} ${CT_TARGET_CFLAGS}"
     CT_EnvModify CT_ARCH_TARGET_CFLAGS_MULTILIB ""
 
     # Currently, the only LDFLAGS are endianness-related
     CT_DoLog DEBUG "Configured target LDFLAGS: '${CT_ARCH_TARGET_LDFLAGS_MULTILIB}'"
     if [ "${ml_endian}" != "seen" ]; then
-        CT_EnvModify CT_TARGET_LDFLAGS "${CT_ARCH_TARGET_LDFLAGS_MULTILIB} ${CT_TARGET_LDFLAGS}"
+        CT_EnvModify CT_ALL_TARGET_LDFLAGS "${CT_ARCH_TARGET_LDFLAGS_MULTILIB} ${CT_TARGET_LDFLAGS}"
         CT_EnvModify CT_ARCH_TARGET_LDFLAGS_MULTILIB ""
     fi
     CT_DoLog DEBUG "Filtered target LDFLAGS: '${CT_ARCH_TARGET_LDFLAGS_MULTILIB}'"
@@ -315,10 +315,12 @@ do_gcc_core_backend() {
         core1|core2)
             CT_DoLog EXTRA "Configuring core C gcc compiler"
             log_txt="gcc"
+            extra_config+=( "${CT_CC_CORE_SYSROOT_ARG[@]}" )
             extra_user_config=( "${CT_CC_GCC_CORE_EXTRA_CONFIG_ARRAY[@]}" )
             ;;
         gcc_build|gcc_host)
             CT_DoLog EXTRA "Configuring final gcc compiler"
+            extra_config+=( "${CT_CC_SYSROOT_ARG[@]}" )
             extra_user_config=( "${CT_CC_GCC_EXTRA_CONFIG_ARRAY[@]}" )
             log_txt="final gcc compiler"
             # to inhibit the libiberty and libgcc tricks later on
@@ -559,7 +561,11 @@ do_gcc_core_backend() {
         fi
     fi
 
-    # Use --with-local-prefix so older gccs don't look in /usr/local (http://gcc.gnu.org/PR10532)
+    # Use --with-local-prefix so older gccs don't look in /usr/local (http://gcc.gnu.org/PR10532).
+    # Pass only user-specified CFLAGS/LDFLAGS in CFLAGS_FOR_TARGET/LDFLAGS_FOR_TARGET: during
+    # the build of, for example, libatomic, GCC tried to compile multiple variants for runtime
+    # selection and passing architecture/CPU selectors, as detemined by crosstool-NG, may
+    # miscompile or outright fail.
     CT_DoExecLog CFG                                   \
     CC_FOR_BUILD="${CT_BUILD}-gcc"                     \
     CFLAGS="${cflags}"                                 \
@@ -577,7 +583,6 @@ do_gcc_core_backend() {
         --target=${CT_TARGET}                          \
         --prefix="${prefix}"                           \
         --with-local-prefix="${CT_SYSROOT_DIR}"        \
-        ${CT_CC_CORE_SYSROOT_ARG}                      \
         "${extra_config[@]}"                           \
         --enable-languages="${lang_list}"              \
         "${extra_user_config[@]}"
@@ -1109,6 +1114,8 @@ do_gcc_backend() {
         fi
     fi
 
+    # NB: not using CT_ALL_TARGET_CFLAGS/CT_ALL_TARGET_LDFLAGS here!
+    # See do_gcc_core_backend for explanation.
     CT_DoExecLog CFG                                   \
     CC_FOR_BUILD="${CT_BUILD}-gcc"                     \
     CFLAGS="${cflags}"                                 \

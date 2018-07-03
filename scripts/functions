@@ -287,6 +287,7 @@ CT_DoLog() {
                 y,*"warning:"*)         cur_L=WARN; cur_l=${CT_LOG_LEVEL_WARN};;
                 y,*"WARNING:"*)         cur_L=WARN; cur_l=${CT_LOG_LEVEL_WARN};;
                 *"error:"*)             cur_L=ERROR; cur_l=${CT_LOG_LEVEL_ERROR};;
+                *"Error:"*)             cur_L=ERROR; cur_l=${CT_LOG_LEVEL_ERROR};;
                 *"make["*"]: ***"*)     cur_L=ERROR; cur_l=${CT_LOG_LEVEL_ERROR};;
                 *)                      cur_L="${LEVEL}"; cur_l="${level}";;
               esac
@@ -962,6 +963,9 @@ CT_GetFile()
         # Try all urls in turn
         for url in "${URLS[@]}"; do
             [ -n "${url}" ] || continue
+            if [ "${url}" = "-unknown-" ]; then
+                CT_Abort "Don't know how to download ${basename}"
+            fi
             if CT_DoGetFile "${url}/${remotename}${ext}" "${CT_TARBALLS_DIR}/${basename}${ext}"; then
                 if [ -n "${digest}" -a -n "${pkg_dir}" ] && ! CT_DoVerifyDigest \
                             "${CT_TARBALLS_DIR}/${basename}${ext}" \
@@ -992,18 +996,18 @@ CT_GetFile()
 # Two wrappers to call config.(guess|sub) either from CT_TOP_DIR or CT_LIB_DIR.
 # Those from CT_TOP_DIR, if they exist, will be be more recent than those from CT_LIB_DIR.
 CT_DoConfigGuess() {
-    if [ -x "${CT_TOP_DIR}/scripts/config.guess" ]; then
-        "${CT_TOP_DIR}/scripts/config.guess"
+    if [ -r "${CT_TOP_DIR}/scripts/config.guess" ]; then
+        "${CT_CONFIG_SHELL}" "${CT_TOP_DIR}/scripts/config.guess"
     else
-        "${CT_LIB_DIR}/scripts/config.guess"
+        "${CT_CONFIG_SHELL}" "${CT_LIB_DIR}/scripts/config.guess"
     fi
 }
 
 CT_DoConfigSub() {
-    if [ -x "${CT_TOP_DIR}/scripts/config.sub" ]; then
-        "${CT_TOP_DIR}/scripts/config.sub" "$@"
+    if [ -r "${CT_TOP_DIR}/scripts/config.sub" ]; then
+        "${CT_CONFIG_SHELL}" "${CT_TOP_DIR}/scripts/config.sub" "$@"
     else
-        "${CT_LIB_DIR}/scripts/config.sub" "$@"
+        "${CT_CONFIG_SHELL}" "${CT_LIB_DIR}/scripts/config.sub" "$@"
     fi
 }
 
@@ -1661,7 +1665,13 @@ CT_MultilibFixupLDSO()
 }
 
 # List the download mirrors. Usage:
-# CT_Mirrors ORGANIZATION PROJECT [...]
+#   CT_Mirrors ORGANIZATION PROJECT [...]
+# Important: this function should not call CT_Abort. Instead, print a special string,
+# -unknown-, to indicate that a certain combination of ORGANIZATION/PROJECT is not handled.
+# The reason is that this function is evaluated when config file is loaded - before ct-ng
+# determines if it needs to download anything at all. On the other hand, if a component
+# comes from a local source directory, it may have a version like "very new" or "very old"
+# which will confuse, for example, Linux mirror selection below.
 CT_Mirrors()
 {
     local org="${1}"
@@ -1693,7 +1703,7 @@ CT_Mirrors()
     kernel.org)
         # TBD move to linux.sh?
         if [ "${project}" != "linux" ]; then
-            CT_Abort "Unsupported project"
+            echo "-unknown-"
         fi
         local version="${CT_LINUX_VERSION}"
         case "${version}" in
@@ -1713,7 +1723,7 @@ CT_Mirrors()
             esac
             ;;
         *)
-            CT_Abort "Unsupported Linux kernel version '${version}'"
+            echo "-unknown-"
             ;;
         esac
         ;;
@@ -1727,7 +1737,7 @@ CT_Mirrors()
         echo "http://vault.centos.org/6.0/os/x86_64/Packages"
         ;;
     *)
-        CT_Abort "Unknown mirror '${org}'"
+        echo "-unknown-"
         ;;
     esac
 }
@@ -1907,7 +1917,7 @@ CT_PackageRun()
     for v in basename pkg_name version pkg_dir \
             src_release mirrors archive_filename archive_remotename archive_dirname archive_formats \
             signature_format src_devel devel_vcs devel_url devel_branch devel_revision devel_subdir \
-            devel_bootstrap src_custom custom_location; do
+            devel_bootstrap src_custom custom_location patch_order; do
         eval "local ${v}=\${CT_${use}_${v^^}}"
     done
 
@@ -2068,6 +2078,11 @@ CT_DoExtractPatch()
     local local_patch_dir
     local overlay
 
+    # Inherit global value if requested
+    if [ "${patch_order}" = "global" ]; then
+        patch_order="${CT_PATCH_ORDER}"
+    fi
+
     # If using overlay, prepare it first - we need to determine where to unpack
     # this component.
     if [ "${CT_TARGET_USE_OVERLAY}" = "y" -a ! -d "${CT_BUILD_DIR}/overlay" ]; then
@@ -2084,7 +2099,7 @@ CT_DoExtractPatch()
     # and no overlays. Otherwise, this source directory is custom-tailored for this
     # particular configuration and cannot be reused by different configurations.
     if [ "${src_custom}" != "y" -a \
-            "${CT_PATCH_ORDER}" = "bundled" -a \
+            "${patch_order}" = "bundled" -a \
             ! -d "${CT_BUILD_DIR}/overlay/${dir_name}" ]; then
         src_dir="${CT_COMMON_SRC_DIR}"
     else
@@ -2133,7 +2148,7 @@ CT_DoExtractPatch()
             bundled_patch_dir="${CT_LIB_DIR}/packages/${pkg_dir}"
             local_patch_dir="${CT_LOCAL_PATCH_DIR}/${pkg_dir}"
 
-            case "${CT_PATCH_ORDER}" in
+            case "${patch_order}" in
                 bundled)        patch_dirs=("${bundled_patch_dir}");;
                 local)          patch_dirs=("${local_patch_dir}");;
                 bundled,local)  patch_dirs=("${bundled_patch_dir}" "${local_patch_dir}");;
@@ -2296,3 +2311,16 @@ CT_GetChoicePkgBuildVersion()
     eval "component=\${CT_${choice}_CHOICE_KSYM}"
     CT_GetPkgBuildVersion "${choice}" "${component}" "${var}"
 }
+
+# Finally, load paths.sh. For --enable-local build, it is located in
+# the current directory (CT_TOP_DIR) while the rest of the scripts are
+# in the source directory (CT_LIB_DIR). For other setups, paths.sh
+# is in CT_LIB_DIR.
+if [ -r "${CT_LIB_DIR}/paths.sh" ]; then
+    paths_sh_location="${CT_LIB_DIR}/paths.sh"
+elif [ -r "${CT_TOP_DIR}/paths.sh" ]; then
+    paths_sh_location="${CT_TOP_DIR}/paths.sh"
+else
+    CT_Error "Not found: paths.sh"
+fi
+. "${paths_sh_location}"
