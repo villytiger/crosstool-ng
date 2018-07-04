@@ -4,7 +4,7 @@ config GDB_GDBSERVER
     bool
     prompt "gdbserver"
     default y
-    depends on ! BARE_METAL
+    depends on ! BARE_METAL && ! FREEBSD
     select LIBC_UCLIBC_WCHAR if LIBC_UCLIBC && GDB_8_0_or_later
     help
       Build and install a gdbserver for the target, to run on the target.
