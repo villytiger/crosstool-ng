@@ -1,0 +1,17 @@
+--- a/usr/include/sys/timex.h
++++ b/usr/include/sys/timex.h
+@@ -141,9 +141,14 @@
+ extern int adjtimex (struct timex *__ntx) __THROW;
+ 
+ #if defined __GNUC__ && __GNUC__ >= 2
++#ifndef __cplusplus
+ extern int ntp_gettime (struct ntptimeval *__ntv)
+      __asm__ ("ntp_gettimex") __THROW;
+ #else
++extern int ntp_gettime (struct ntptimeval *__ntv)
++     __THROW __asm__ ("ntp_gettimex");
++#endif
++#else
+ extern int ntp_gettimex (struct ntptimeval *__ntv) __THROW;
+ # define ntp_gettime ntp_gettimex
+ #endif
