@@ -13,6 +13,12 @@ CT_DoArchTupleValues() {
     # Override ABI flags
     CT_ARCH_ABI_CFLAG="-mabi=${CT_ARCH_mips_ABI}"
     CT_ARCH_WITH_ABI="--with-abi=${CT_ARCH_mips_ABI}"
+
+    # The system part of the tuple:
+    case "${CT_LIBC},${CT_ARCH_mips_ABI}" in
+        glibc,n32)  CT_TARGET_SYS=gnuabin32;;
+        glibc,64)   CT_TARGET_SYS=gnuabi64;;
+    esac
 }
 
 CT_DoArchUClibcConfig() {
