@@ -2053,7 +2053,8 @@ CT_Extract()
             CT_Popd
             ;;
         *.rpm)
-            rpm2cpio "${file}" | xz -d | CT_DoExecLog FILE cpio -idv -D "${dir}" ${components}
+            # Ignore exit code from rpm2cpio because it always returns 1.
+            (rpm2cpio "${file}" || true) | xz -d | CT_DoExecLog FILE cpio -idv -D "${dir}" ${components}
             ;;
         *)
             CT_Abort "Don't know how to handle ${file}: unknown extension"
