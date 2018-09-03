@@ -836,6 +836,29 @@ CT_ZCat()
     esac
 }
 
+# This function is based on rpm2cpio from Arch Linux
+CT_Rpm2cpio()
+{
+	local file="$1"
+
+	local leadsize=96
+	local o=$(($leadsize + 8))
+	local data=(`od -j $o -N 8 -t u1 "$file"`)
+	local il=$((256 * ( 256 * ( 256 * ${data[1]} + ${data[2]} ) + ${data[3]} ) + ${data[4]}))
+	local dl=$((256 * ( 256 * ( 256 * ${data[5]} + ${data[6]} ) + ${data[7]} ) + ${data[8]}))
+	
+	local sigsize=$((8 + 16 * $il + $dl))
+	local o=$(($o + $sigsize + ( 8 - ( $sigsize % 8 ) ) % 8 + 8))
+	local data=(`od -j $o -N 8 -t u1 "$file"`)
+	local il=$((256 * ( 256 * ( 256 * ${data[1]} + ${data[2]} ) + ${data[3]} ) + ${data[4]}))
+	local dl=$((256 * ( 256 * ( 256 * ${data[5]} + ${data[6]} ) + ${data[7]} ) + ${data[8]}))
+
+	local hdrsize=$((8 + 16 * $il + $dl))
+	local o=$(($o + $hdrsize))
+
+	dd "if=$file" ibs=$o skip=1 status=none
+}
+
 # Verify the file against a detached signature.
 # Fetched from the URL, or obtained from the package directory.
 # Usage: CT_DoVerifySignature <local-file-path> <URL-used-for-download> <signature-format>
@@ -2053,8 +2076,7 @@ CT_Extract()
             CT_Popd
             ;;
         *.rpm)
-            # Ignore exit code from rpm2cpio because it always returns 1.
-            (rpm2cpio "${file}" || true) | xz -d | CT_DoExecLog FILE cpio -idv -D "${dir}" ${components}
+            CT_Rpm2cpio "${file}" | CT_DoExecLog FILE bsdtar -x -f - -C "${dir}" ${components}
             ;;
         *)
             CT_Abort "Don't know how to handle ${file}: unknown extension"
